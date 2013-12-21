@@ -1,0 +1,84 @@
+<script type="text/javascript">
+$('#about_env_link').click(function() {
+	$('#about-content').slideToggle('fast', function() {
+		// ok
+	});
+	return( false );
+});
+</script>
+<script type="text/javascript">
+$(document).ready(function() {
+ $("#keywords").keyup(function(){
+   var kw = $("#keywords").val();
+   if(kw != '')
+     {    
+$.ajax    ({
+         type: "POST", 
+         url: "search",
+         data: "kw="+ kw, 
+         success: function(option)      
+ {        
+ $("#results").html(option);         }
+      });    }  
+ else    { 
+       $("#results").html("");   }  
+return false;   });
+$(".overlay").click(function(){
+$(".overlay").css('display','none');
+$("#results").css('display','none');
+});    
+$("#keywords").focus(function(){
+$(".overlay").css('display','block');
+$("#results").css('display','block');   
+ });
+ });
+</script>
+<div id="page">
+      <div id="sidebar">
+        <ul id="sidebar-items">
+          <li>
+            <h3>Actions</h3>
+            <ul class="links">
+              <li><a href="/download">Download RemoteLib</a></li>
+              <li><a href="/browse">Browse available Modules</a></li>
+              <li><a href="/add">Add Modules RemoteLib</a></li>
+              <li><a href="/search">Search</li>
+            </ul>
+          </li>
+        </ul>
+      </div>
+      <div id="content">
+        <div id="header">
+          <h1>Welcome to RemoteLib </h1>
+          <h2>CPAN modules available without installation</h2>
+        </div>
+        <div id="getting-started">
+          <h1>Getting started</h1>
+          <h2>Here&rsquo;s how to use RemoteLib:</h2>
+		</div>
+          <ol>
+            <li>
+              <h2>Install Perl with no extra CPAN modules</h2>
+              <p> Either use a pre-installed perl, install one with App::perlbrew or install one manually from source </p>
+            </li>
+            <li>
+              <h2>Download RemoteLib </h2>
+              <p> <a href="/download">Download RemoteLib</a> </p>
+            </li>
+            <li>
+                <h2>use RemoteLib when you run any perl script</h2>
+                <p> Either set PERL5OPT=-MRemoteLib add use RemoteLib to your perl scripts or run a script with perl -MRemoteLib &lt;script&gt; </p>
+            </li>
+			<li>
+                <h2>Search by Module name</h2>
+				<div class="ajax_body">
+				<div id="inputbox"><input id="keywords" type="text" name="keywords" placeholder="Type Your Query..." value="" />
+				</div>
+				<div id="results"></div>
+				<div class="overlay"></div>
+            </li>
+
+          </ol>
+        </div>
+      </div>
+    </div>
