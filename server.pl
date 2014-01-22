@@ -7,6 +7,7 @@ use Data::Dumper;
 use Storable qw/ nfreeze retrieve /;
 use File::Slurp;
 use Module::CoreList;
+use File::Basename qw/  basename dirname /;
 use Archive::Extract;
 use PAR::Repository;
 use Data::Printer;
@@ -14,53 +15,13 @@ use Carp::Always;
 use Archive::Zip qw( :ERROR_CODES :CONSTANTS );
 use Digest::SHA1 qw/sha1 sha1_hex sha1_base64/;
 use Path::Tiny;
-use DBM::Deep;
-use File::Find::Rule;
-my $libs = '/home/tony/libs';
-my $pars = '/home/tony/parrepo';
-my %libs = ();
-=pod
-my $rep = new PAR::Repository(path => $pars);
-my ($dbm, $filename) = $rep->modules_dbm();
-my $db = DBM::Deep->new(file=>$filename, type=>DBM::Deep->TYPE_HASH);
-my $key = $db->first_key();
-while ($key) {
-	my $value = $db->{$key};
-	my $subkey = $value->first_key();
-	while($subkey) {
-		my $value2 = $db->{$key}->{$subkey};
-		warn( ref($value)."\n". ref($value2)."\n");
-		$libs{$key}{$subkey
-		print Data::Dumper->Dump([ $key,$subkey,$value, $value2], 
-								 [qw/$key $subkey $value $value2/]);
-		$subkey = $value->next_key($subkey);
-	}
-	$key = $db->next_key($key);
-}
-#my %modules =  %{  $modules };
-#print join("\n", keys %{  $modules });
-=cut
-$| = 1;
-my @pars = File::Find::Rule->file()->in( $pars );
-
-foreach my $path (@pars) {
-	my $orig_path = $path;
-	next unless $path =~ m/\.par$/;
-	$path =~ s!^$pars/!!;
-	my ($arch, $perlversion, $par) = split('/', $path);
-#	$libs{$arch}{$perlversion}{$par} = $par;
-	$par =~ s/\.par//;
-	$par =~ s/-$perlversion//;
-	$par =~ s/-$arch//;
-	my @bits = split('-', $par);
-	my $moduleversion = pop @bits;
-	my $modulename = join('::', @bits);
-	$libs{$arch}{$perlversion}{$modulename} = { path => $orig_path,
-												moduleversion => $moduleversion,
-											 };
-}
-#print Dumper \%libs;
-my $digest_hex = sha1_hex(\%libs);
+my $inventry = '/home/tony/work/inventry2.txt';
+our $modules;
+do $inventry;
+our $pars;
+my $parfiles =  '/home/tony/work/pars2.txt';
+do $parfiles;
+our $data;
 
 my $socket = new IO::Socket::INET (
 	LocalHost => '0.0.0.0',
@@ -76,74 +37,93 @@ while(1) {
 	my $client_address = $client_socket->peerhost();
     my $client_port = $client_socket->peerport();
     print "connection from $client_address:$client_port\n";
- 	our $data;
 	my $recieved = "";
     # read up to 1024 characters from the connected client
     $client_socket->recv($recieved, 4096);
 #	print Data::Dumper->Dump([$recieved], [qw/$received/]);
 	eval $recieved;
 
-#    print "received data: ".Data::Dumper->Dump([$data], [qw/$data/]);
-	my $return_data = {};
-	my $serialized;
+    print "received data: ".Data::Dumper->Dump([$data], [qw/$data/]);
+	my $digest_hex = sha1_hex($modules);
+	my $return_data;
 	$data->{digest_hex} ||= "";
+	my $archname = $data->{archname};
+	my %specific_modules = ( $archname => { %{ $modules->{ $data->{archname} } } },
+							 any_arch  => { %{ $modules->{ any_arch } } },
+							 );
 	unless($data->{digest_hex} eq $digest_hex) {
 		$return_data->{digest_hex} = $digest_hex;
-		$return_data->{modlist} = { %libs };
+#		$return_data->{modlist} = { %specific_modules };
+		$return_data->{corelist} = $Module::CoreList::version{ $data->{corelistversion} };
 	}
-	if (Module::CoreList->is_core($data->{Module}, $data->{PerlVersion})) {
-		$serialized = 'Core';
+
+	
+#	print Dumper $modules->{ $data->{archname} }->{ $data->{PerlVersion} }->{ $data->{Module} },
+#				 $modules->{ any_arch }->{ any_version }->{ $data->{Module} }, $data;
+	if (exists( $modules->{ $data->{archname} }{ $data->{PerlVersion} }->{ $data->{Module} } ) ) {
+		$return_data = extract_par_to_hash( get_latest_par( $modules->{ $data->{archname} }{ $data->{PerlVersion} }->{ $data->{Module} } ), $return_data);
 	}
-	else { 
-		if (exists($libs{$data->{archname}}{$data->{PerlVersion}}{$data->{Module}})) {
-			$serialized = extract_par_to_hash($data, $libs{$data->{archname}}{$data->{PerlVersion}}{$data->{Module}},
-											  $return_data);
-		}
-		elsif (exists($libs{any_arch}{any_version}{$data->{Module}})) {
-			$serialized = extract_par_to_hash($data, $libs{any_arch}{any_version}{$data->{Module}}, $return_data);
-		}
-		else {
-			warn "Can't find ".Dumper $data->{archname}, $data->{PerlVersion}, $data->{Module};
-		}
+	elsif ( exists( $modules->{ any_arch }->{ any_version }->{ $data->{Module} } ) ) {
+		$return_data = extract_par_to_hash( get_latest_par( $modules->{ any_arch }{  any_version }->{ $data->{Module} } ), $return_data);
 	}
-#	else {
-#		my $topdir = "$libs/$hash->{PerlVersion}/$hash->{archname}";
-#		if ($libs{$topdir}) {
-#			$serialized = $libs{$topdir};
-#		}
-#		else {
-#			my @files = sort File::Find::Rule->file()->in( "$topdir" );
-#			$data = {};
-#			foreach my $file (@files) {
-#				my $stem = $file;
-#				$stem =~ s!^$topdir/!!;
-#				$data->{$stem} = read_file( $file, { binmode => ':raw' });
-#			}
-#			# write response data to the connected client
-#			print Dumper keys %{ $data };
-#
-#			$serialized = Data::Dumper->Dump([$data], [qw/$data/]);
-#			$libs{$topdir} = $serialized;
-#		}
-#	}
-#	print Dumper $serialized;
-    my $size = $client_socket->send($serialized);
+	else {
+		warn "Can't find ".Dumper $data->{Module};
+	}
+    my $size = $client_socket->send(Data::Dumper->Dump([$return_data], [qw/$data/]));
 	print "sent data of size $size\n";
  
     # notify client that response has been sent
     shutdown($client_socket, 1);
 }
-$socket->close();
+#$socket->close();
 sub extract_par_to_hash {
-	my ($data, $par, $ret) = @_;
+	my ( $par, $ret) = @_;
 	my %hash = %{ $ret };
-	warn "Extracting $par->{path}\n";
-	my $zip = Archive::Zip->new( $par->{path} ) or die "Can't extract par $par->{path}: $!";
+#	print Data::Dumper->Dump([ $par, $pars ], [qw/ $par $pars/]);
+	my $filename = basename($par);
+	my $mods = $pars->{$filename};
+#	print Dumper $mods;
+	$hash{modules} = { %{ $mods } };
+#	print Dumper $hash{modules}; 
+	my $zip = Archive::Zip->new( $par ) or die "Can't extract par $par->{path}: $!";
 	foreach my $member ($zip->members()) {
 		next if $member->isDirectory();
 		$hash{files}{  $member->fileName } = $zip->contents( $member->fileName );
 	}
-#	warn Dumper \%hash;
-	return Data::Dumper->Dump([\%hash], [qw/$data/]);
+	return \%hash;
 
+}
+sub get_latest_par {
+	my ($pars) = @_;
+	print Dumper $pars;
+	my $latest_par = undef;
+	my $latest_version = undef;
+	foreach my $par (keys %{ $pars }) {
+		$latest_par ||= $par;
+		my $version = get_version($pars->{$par}, $par);
+		$latest_version ||= $version;
+		if ($version > $latest_version) {
+			$latest_par = $par; 
+			$latest_version = $version;
+		}
+	}
+	print Data::Dumper->Dump([ $latest_par ], [qw/ $latest_par/]);
+
+	return "/home/tony/work/$latest_par";
+}
+sub get_version {
+	my ($version, $par) = @_;
+	return $version if $version;
+	my @bits = split('-', $par);
+	pop(@bits);
+	pop(@bits);
+	my $vers = pop(@bits);
+	if ($vers =~ m/^[\d.]+$/) {
+		return $vers;
+	}
+	else {
+		warn "Can't determine version $vers in $par\n";
+		return 1;
+	}
+	return pop(@bits);
 }
