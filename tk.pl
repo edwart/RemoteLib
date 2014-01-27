@@ -2,8 +2,7 @@
 
 use strict;
 use warnings;
-use RemoteLib qw/{server=>miltonkeynes.pm, port=>7777}/;
-use Tk;
+use Tk '804.031';
 
 my $mw = new MainWindow;
 $mw->Label(-text => 'Hello World')->pack;
