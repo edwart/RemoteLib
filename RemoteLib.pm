@@ -27,6 +27,7 @@ our %remotelibconfig = ( server         => $ENV{REMOTELIB_SERVER} || 'miltonkeyn
                          with_man       => 1,
                          with_pod       => 1,
                          with_scripts   => 1,
+                         debug          => 0,
                          );
 my %timediffs = ( daily => (24 * 60 * 60),
                   hourly => (60 * 60),
@@ -37,8 +38,7 @@ my %timediffs = ( daily => (24 * 60 * 60),
                   );
 our $socket = undef;
 our $modlist;
-our $corelist = undef;
-warn "saving to $remotelibconfig{locallib}\n";
+warn "saving to $remotelibconfig{locallib}\n" if $remotelibconfig{debug} > 0;
 mkdir($remotelibconfig{locallib}) unless -f $remotelibconfig{locallib};
 our $modlistfile = "$remotelibconfig{locallib}/modlist.perl";
 do $modlistfile if -f $modlistfile;
@@ -46,6 +46,9 @@ our $seen;
 our $seenfile = "$remotelibconfig{locallib}/seen.perl";;
 do $seenfile if -f $seenfile;
 our $client = undef;
+our $corelist;
+my $corelistfile = "$remotelibconfig{locallib}/corelist.perl";
+do $corelistfile if -f $corelistfile;
 my $corelistversion = $Config{PERL_SUBVERSION} > 0
             ? sprintf("%d.%03d%03d",@Config{qw/PERL_REVISION PERL_VERSION PERL_SUBVERSION/ } )
             : sprintf("%d.%03d",@Config{qw/PERL_REVISION PERL_VERSION/ }); 
@@ -70,6 +73,7 @@ unshift @INC, \&find_lib;
 
 sub get_socket { 
     return $socket if $socket;
+    warn Dumper \%remotelibconfig if $remotelibconfig{debug} > 1;
     $socket = IO::Socket::INET->new(
         PeerHost => $remotelibconfig{server},
         PeerPort => $remotelibconfig{port},
@@ -103,12 +107,20 @@ sub find_lib {
     $config{want_corelist} = 1 unless defined $corelist;
     return if ref $Module eq "CODE";
     $config{Module} = $Module;
+    warn Dumper \%config if $remotelibconfig{debug} > 0;
     send_data(\%config);
     my $data = get_data();
+    warn Dumper [ keys %{ $data->{modules} } ] if $remotelibconfig{debug} > 0;
     foreach my $mod (keys %{ $data->{modules} }) {
         $seen->{$mod} = time();
     }
-    $corelist = $data->{corelist};
+    unless($corelist) {
+        $corelist = $data->{corelist};
+        my $fhcorelist = FileHandle->new("> $corelistfile");
+        $fhcorelist->print(Data::Dumper->Dump([$corelist], [qw/$corelist/]));
+        $fhcorelist->close;
+    }
+    $config{want_corelist} = 0;
         
     $config->{digest_hex} = $data->{digest_hex};
     mkdir $remotelibconfig{locallib} unless -d $remotelibconfig{locallib};
@@ -142,6 +154,7 @@ sub find_lib {
         }
 
 #        print "writing $d/$filename\n";
+        warn print "writing $d/$filename\n" if $remotelibconfig{debug} > 0;
         my $fh = FileHandle->new("> $d/$filename") or warn "Can't create $d/$filename : $!";
         if ($fh) {
             binmode $fh;
@@ -279,6 +292,14 @@ The connection port to the remote server - defaults to 7777
 The path the the top level directory where ther downloaded files will be put - the default depends on the 
 operating system in use - on Windows it will use environemnt variable LOCALAPPDATA and otherwise it will use /tmp
 In both cases it will use a subdirectory mylocallib
+
+=item debug
+
+controls how much debug out is display as follows :-
+
+debug = 0 # no debug, the default
+debug = 1 # basic debug
+debug = 1 # verbose debug
 
 =item updatecheck
 
